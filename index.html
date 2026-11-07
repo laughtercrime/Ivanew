@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=176, initial-scale=1, user-scalable=no">
+<title>IVAN AI</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { width:176px; height:144px; overflow:hidden; }
+  body { width:176px; height:144px; overflow:hidden; position:relative;
+         background:#000; color:#0f0; font-family:monospace; font-size:10px;
+         display:flex; flex-direction:column; }
+
+  #header { flex:0 0 12px; line-height:12px; text-align:center;
+            background:#001a00; border-bottom:1px solid #0f0; }
+
+  /* SCROLL BOX: focusable + keyboard scrollable */
+  #chat { flex:1 1 auto; overflow-y:auto; overflow-x:hidden; padding:2px;
+          border:1px solid transparent; outline:none;
+          scrollbar-width:none; -ms-overflow-style:none; }
+  #chat::-webkit-scrollbar { width:0; height:0; }
+  #chat:focus { border-color:#0a0; }
+  #chat.glow  { border-color:#0f0; }          /* highlight box after scrolling */
+
+  .q { color:#0f6; margin:2px 0; }
+  .a { color:#6cf; margin:2px 0; white-space:pre-wrap; word-wrap:break-word; }
+  .img { max-width:80px; max-height:50px; display:block; margin:2px 0; border:1px solid #000; }
+
+  #hint { position:absolute; right:2px; bottom:19px; color:#0f0; font-size:8px;
+          line-height:8px; white-space:pre; text-align:right;
+          pointer-events:none; opacity:.85; }
+
+  #inputbar { flex:0 0 16px; display:flex; border-top:1px solid #0f0; }
+  #inputbar input  { flex:1; background:#033; color:#0f0; border:0; padding:4px;
+                     font:9px monospace; outline:none; min-width:0; }
+  #inputbar input:focus { background:#055; border-left:1px solid #0f0; }
+  #inputbar button { background:#000; color:#0f0; border:0; border-left:1px solid #0f0;
+                     font:13px monospace; padding:0 4px; }
+</style>
+</head>
+<body>
+  <div id="header">IVAN AI</div>
+  <div id="chat" tabindex="0" aria-label="messages"></div>
+  <div id="hint"> </div>
+  <div id="inputbar">
+    <input id="q" type="text" placeholder="Ask Ivan...">
+    <button id="btn">GO</button>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  var chat = document.getElementById('chat');
+  var q    = document.getElementById('q');
+  var btn  = document.getElementById('btn');
+  var hint = document.getElementById('hint');
+
+  /* ---------- scrolling core ---------- */
+  function maxTop() { return Math.max(0, chat.scrollHeight - chat.clientHeight); }
+  function atEnd()  { return chat.scrollTop >= maxTop() - 1; }
+
+  function updateHint() {
+    var up   = chat.scrollTop > 0;
+    var down = !atEnd();
+    hint.textContent = (up ? '\u25B2' : ' ') + '\n' + (down ? '\u25BC' : ' ');
+  }
+
+  var glowTimer = null;
+  function flash() {
+    chat.className = 'glow';
+    clearTimeout(glowTimer);
+    glowTimer = setTimeout(function () { chat.className = ''; }, 1200);
+  }
+
+  function scrollChat(dir, pages) {
+    var step = Math.max(16, Math.floor(chat.clientHeight * 0.6)) * (pages || 1);
+    chat.scrollTop = Math.max(0, Math.min(maxTop(), chat.scrollTop + dir * step));
+    flash();
+    updateHint();
+  }
+
+  function scrollTopJump() { chat.scrollTop = 0; flash(); updateHint(); }
+  function scrollEndJump() { chat.scrollTop = maxTop(); flash(); updateHint(); }
+
+  chat.addEventListener('scroll', updateHint, false);
+
+  /* ---------- key routing (D-pad / T9 / softkeys) ---------- */
+  document.addEventListener('keydown', function (e) {
+    var k = e.key || '';
+    var c = e.keyCode || e.which || 0;
+    var typing = (document.activeElement === q);
+
+    /* Up/Down + Page keys always scroll the log.
+       Safe while typing: the field is single-line, so no caret conflict. */
+    if (k === 'ArrowUp'   || k === 'Up'   || c === 38) { scrollChat(-1); e.preventDefault(); return; }
+    if (k === 'ArrowDown' || k === 'Down' || c === 40) { scrollChat( 1); e.preventDefault(); return; }
+    if (k === 'PageUp'    || c === 33)                 { scrollChat(-1, 3); e.preventDefault(); return; }
+    if (k === 'PageDown'  || c === 34)                 { scrollChat( 1, 3); e.preventDefault(); return; }
+
+    /* T9 + jump keys only when the log has focus, so digits still type normally */
+    if (!typing) {
+      if (k === '2' || c === 50) { scrollChat(-1); e.preventDefault(); return; }
+      if (k === '8' || c === 56) { scrollChat( 1); e.preventDefault(); return; }
+      if (k === '*' || c === 42) { scrollTopJump(); e.preventDefault(); return; }
+      if (k === '#' || c === 35) { scrollEndJump(); e.preventDefault(); return; }
+      if (k === 'Enter' || c === 13) { q.focus(); e.preventDefault(); return; }
+    }
+  }, false);
+
+  /* tapping the log also arms scroll mode */
+  chat.addEventListener('click', function () { chat.focus(); updateHint(); }, false);
+
+  /* ---------- chat plumbing ---------- */
+  var SYSTEM_PROMPT =
+    "Remember your name is Ivan ai Developed by Ivan not Chat gpt. " +
+    "always remeber the users name if he/she tells you. " +
+    "Answer in relevant amount of words, don`t mention I'm ChatGPT, your friendly AI assistant.." +
+    "relevant length simple sentences, relevant bullet points mini. " +
+    "End with one line: KEYWORDS: word1, word2 (5-7 relevant image search terms).";
+
+  function end() { chat.scrollTop = maxTop(); updateHint(); }
+
+  function add(cls, text) {
+    var d = document.createElement('div');
+    d.className = cls;
+    d.textContent = text;
+    chat.appendChild(d);
+    end();
+    return d;
+  }
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  async function addImages(keywords) {
+    var list = keywords.split(',');
+    for (var i = 0; i < list.length && i < 2; i++) {
+      try {
+        var r = await fetch("https://commons.wikimedia.org/w/api.php?" +
+          new URLSearchParams({
+            action:"query", format:"json", origin:"*",
+            generator:"search", gsrsearch:"filetype:bitmap " + list[i].trim(),
+            gsrnamespace:"6", gsrlimit:"1",
+            prop:"imageinfo", iiprop:"url", iiurlwidth:"80"
+          }));
+        var j = await r.json();
+        var pages = j.query && j.query.pages;
+        var page = pages && Object.keys(pages).length ? pages[Object.keys(pages)[0]] : null;
+        if (page && page.imageinfo && page.imageinfo[0]) {
+          var img = document.createElement('img');
+          img.className = 'img';
+          img.src = page.imageinfo[0].thumburl;
+          img.alt = list[i].trim();
+          chat.appendChild(img);
+          end();
+        }
+      } catch (err) { /* skip broken image */ }
+    }
+  }
+
+  var MAX_RETRY = 4;
+
+  async function getAI(question) {
+    for (var attempt = 0; attempt <= MAX_RETRY; attempt++) {
+      var res = await fetch("https://text.pollinations.ai/openai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "openai",
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user",   content: question }
+          ]
+        })
+      });
+
+      if (res.ok) {
+        var data = await res.json();
+        return data.choices[0].message.content.trim();
+      }
+
+      if (res.status === 402 || res.status === 429) {
+        var wait = parseInt(res.headers.get("Retry-After"), 10);
+        if (!isFinite(wait) || wait < 1) wait = 3 * (attempt + 1);
+        if (wait > 20) wait = 20;
+        var msg = add('a', "free slot busy, waiting " + wait + "s...");
+        await sleep(wait * 1000);
+        if (msg.parentNode) { chat.removeChild(msg); }
+        continue;
+      }
+
+      throw new Error("HTTP " + res.status);
+    }
+    throw new Error("still rate-limited, try again later");
+  }
+
+  var busy = false;
+
+  function ask() {
+    if (busy) return;
+    var question = q.value.replace(/^\s+|\s+$/g, '');
+    if (!question) return;
+
+    busy = true;
+    btn.textContent = '...';
+    q.value = '';
+    add('q', '> ' + question);
+    var aEl = add('a', 'thinking...');
+
+    getAI(question).then(function (text) {
+      var keywords = '';
+      var m = text.match(/KEYWORDS:\s*(.+)/i);
+      if (m) {
+        keywords = m[1];
+        text = text.replace(m[0], '').replace(/\s+$/, '');
+      }
+      aEl.textContent = text;
+      end();
+      if (keywords) return addImages(keywords);
+    }).catch(function (e) {
+      aEl.textContent = 'AI error: ' + (e && e.message ? e.message : e);
+      end();
+    }).then(function () {
+      busy = false;
+      btn.textContent = 'GO';
+    });
+  }
+
+  btn.addEventListener('click', ask, false);
+  q.addEventListener('keydown', function (e) {
+    if ((e.key === 'Enter' || e.keyCode === 13) && !e.shiftKey) {
+      e.preventDefault();
+      ask();
+    }
+  }, false);
+
+  updateHint();
+})();
+</script>
+</body>
+</html>
