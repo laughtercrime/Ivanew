@@ -2,240 +2,219 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=128, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=128, initial-scale=1">
 <title>IVAN AI</title>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html { width:128px; height:160px; overflow:hidden; }
-  body { width:128px; height:160px; overflow:hidden; position:relative;
-         background:#000; color:#0f0; font-family:monospace; font-size:10px;
-         display:flex; flex-direction:column; }
-
-  #header { flex:0 0 12px; line-height:12px; text-align:center;
-            background:#001a00; border-bottom:1px solid #0f0; }
-
-  /* SCROLL BOX: focusable + keyboard scrollable */
-  #chat { flex:1 1 auto; overflow-y:auto; overflow-x:hidden; padding:2px;
-          border:1px solid transparent; outline:none;
-          scrollbar-width:none; -ms-overflow-style:none; }
-  #chat::-webkit-scrollbar { width:0; height:0; }
-  #chat:focus { border-color:#0a0; }
-  #chat.glow  { border-color:#0f0; }          /* highlight box after scrolling */
-
+  * { margin:0; padding:0; box-sizing:border-box; font-family:monospace; }
+  body { width:128px; height:160px; overflow:hidden; background:#000; color:#0f0;
+         display:flex; flex-direction:column; font-size:9px; }
+  #header { background:#020; color:#0f0; padding:2px; text-align:center;
+            border-bottom:1px solid #0f0; flex:0 0 12px; }
+  #chat   { flex:1; overflow-y:auto; padding:2px; outline:none; }
   .q { color:#0f6; margin:2px 0; }
-  .a { color:#6cf; margin:2px 0; white-space:pre-wrap; word-wrap:break-word; }
-  .img { max-width:80px; max-height:50px; display:block; margin:2px 0; border:1px solid #000; }
-
-  #hint { position:absolute; right:2px; bottom:19px; color:#0f0; font-size:8px;
-          line-height:8px; white-space:pre; text-align:right;
-          pointer-events:none; opacity:.85; }
-
-  #inputbar { flex:0 0 16px; display:flex; border-top:1px solid #0f0; }
-  #inputbar input  { flex:1; background:#033; color:#0f0; border:0; padding:4px;
-                     font:9px monospace; outline:none; min-width:0; }
-  #inputbar input:focus { background:#055; border-left:1px solid #0f0; }
-  #inputbar button { background:#000; color:#0f0; border:0; border-left:1px solid #0f0;
-                     font:13px monospace; padding:0 4px; }
+  .a { color:#0d0; margin:2px 0; white-space:pre-wrap; }
+  .img { max-width:70px; max-height:45px; display:block; margin:2px 0; border:1px solid #0f0; }
+  #inputbar { flex:0 0 18px; display:flex; border-top:1px solid #0f0; }
+  #inputbar input { flex:1; background:#001a00; color:#0f0; border:0; font-size:9px; padding:3px; outline:none; }
+  #inputbar input:focus { background:#003300; }
+  #inputbar button { background:#000; color:#0f0; border:0; border-left:1px solid #0f0; font-size:10px; }
+  #inputbar button:focus { background:#003300; }
+  .focused { outline:1px solid #0f0; }
 </style>
 </head>
 <body>
   <div id="header">IVAN AI</div>
-  <div id="chat" tabindex="0" aria-label="messages"></div>
-  <div id="hint"> </div>
+  <div id="chat" tabindex="0"></div>
   <div id="inputbar">
     <input id="q" type="text" placeholder="Ask Ivan...">
     <button id="btn">GO</button>
   </div>
 
 <script>
-(function () {
-  'use strict';
+const chat  = document.getElementById('chat');
+const input = document.getElementById('q');
+const btn   = document.getElementById('btn');
 
-  var chat = document.getElementById('chat');
-  var q    = document.getElementById('q');
-  var btn  = document.getElementById('btn');
-  var hint = document.getElementById('hint');
+const SYSTEM_PROMPT =
+  "Remember your name is Ivan AI, developed by Ivan, not ChatGPT. " +
+  "Always remember the user's name if he/she tells you. " +
+  "Always answer in a relevant amount of words: simple sentences, mini bullet points. " +
+  "Do not mention being ChatGPT or 'your friendly AI assistant'. " +
+  "End with one line: KEYWORDS: word1, word2 (5-7 relevant image search terms).";
 
-  /* ---------- scrolling core ---------- */
-  function maxTop() { return Math.max(0, chat.scrollHeight - chat.clientHeight); }
-  function atEnd()  { return chat.scrollTop >= maxTop() - 1; }
+/* ============================================================
+   BUILT-IN API KEY
+   Get your free key at https://enter.pollinations.ai/keys
+   (sign up, earn free Pollen via Quests, create sk_ key),
+   then paste it between the quotes below. That's it —
+   no prompt, no setup screen.
+   ============================================================ */
+const API_KEY = "sk_KX5athnVXRWGwuJPT8SNNCy6IfNIfPfw";
 
-  function updateHint() {
-    var up   = chat.scrollTop > 0;
-    var down = !atEnd();
-    hint.textContent = (up ? '\u25B2' : ' ') + '\n' + (down ? '\u25BC' : ' ');
-  }
+/* ---------- rendering ---------- */
+function add(cls, text) {
+  const d = document.createElement('div');
+  d.className = cls; d.textContent = text;
+  chat.appendChild(d); chat.scrollTop = chat.scrollHeight;
+  return d;
+}
 
-  var glowTimer = null;
-  function flash() {
-    chat.className = 'glow';
-    clearTimeout(glowTimer);
-    glowTimer = setTimeout(function () { chat.className = ''; }, 1200);
-  }
-
-  function scrollChat(dir, pages) {
-    var step = Math.max(16, Math.floor(chat.clientHeight * 0.6)) * (pages || 1);
-    chat.scrollTop = Math.max(0, Math.min(maxTop(), chat.scrollTop + dir * step));
-    flash();
-    updateHint();
-  }
-
-  function scrollTopJump() { chat.scrollTop = 0; flash(); updateHint(); }
-  function scrollEndJump() { chat.scrollTop = maxTop(); flash(); updateHint(); }
-
-  chat.addEventListener('scroll', updateHint, false);
-
-  /* ---------- key routing (D-pad / T9 / softkeys) ---------- */
-  document.addEventListener('keydown', function (e) {
-    var k = e.key || '';
-    var c = e.keyCode || e.which || 0;
-    var typing = (document.activeElement === q);
-
-    /* Up/Down + Page keys always scroll the log.
-       Safe while typing: the field is single-line, so no caret conflict. */
-    if (k === 'ArrowUp'   || k === 'Up'   || c === 38) { scrollChat(-1); e.preventDefault(); return; }
-    if (k === 'ArrowDown' || k === 'Down' || c === 40) { scrollChat( 1); e.preventDefault(); return; }
-    if (k === 'PageUp'    || c === 33)                 { scrollChat(-1, 3); e.preventDefault(); return; }
-    if (k === 'PageDown'  || c === 34)                 { scrollChat( 1, 3); e.preventDefault(); return; }
-
-    /* T9 + jump keys only when the log has focus, so digits still type normally */
-    if (!typing) {
-      if (k === '2' || c === 50) { scrollChat(-1); e.preventDefault(); return; }
-      if (k === '8' || c === 56) { scrollChat( 1); e.preventDefault(); return; }
-      if (k === '*' || c === 42) { scrollTopJump(); e.preventDefault(); return; }
-      if (k === '#' || c === 35) { scrollEndJump(); e.preventDefault(); return; }
-      if (k === 'Enter' || c === 13) { q.focus(); e.preventDefault(); return; }
-    }
-  }, false);
-
-  /* tapping the log also arms scroll mode */
-  chat.addEventListener('click', function () { chat.focus(); updateHint(); }, false);
-
-  /* ---------- chat plumbing ---------- */
-  var SYSTEM_PROMPT =
-    "Remember your name is Ivan ai Developed by Ivan not Chat gpt. " +
-    "always remeber the users name if he/she tells you. " +
-    "Answer in relevant amount of words, don`t mention I'm ChatGPT, your friendly AI assistant.." +
-    "relevant length simple sentences, relevant bullet points mini. " +
-    "End with one line: KEYWORDS: word1, word2 (5-7 relevant image search terms).";
-
-  function end() { chat.scrollTop = maxTop(); updateHint(); }
-
-  function add(cls, text) {
-    var d = document.createElement('div');
-    d.className = cls;
-    d.textContent = text;
-    chat.appendChild(d);
-    end();
-    return d;
-  }
-
-  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-
-  async function addImages(keywords) {
-    var list = keywords.split(',');
-    for (var i = 0; i < list.length && i < 2; i++) {
-      try {
-        var r = await fetch("https://commons.wikimedia.org/w/api.php?" +
-          new URLSearchParams({
-            action:"query", format:"json", origin:"*",
-            generator:"search", gsrsearch:"filetype:bitmap " + list[i].trim(),
-            gsrnamespace:"6", gsrlimit:"1",
-            prop:"imageinfo", iiprop:"url", iiurlwidth:"80"
-          }));
-        var j = await r.json();
-        var pages = j.query && j.query.pages;
-        var page = pages && Object.keys(pages).length ? pages[Object.keys(pages)[0]] : null;
-        if (page && page.imageinfo && page.imageinfo[0]) {
-          var img = document.createElement('img');
-          img.className = 'img';
-          img.src = page.imageinfo[0].thumburl;
-          img.alt = list[i].trim();
-          chat.appendChild(img);
-          end();
-        }
-      } catch (err) { /* skip broken image */ }
-    }
-  }
-
-  var MAX_RETRY = 4;
-
-  async function getAI(question) {
-    for (var attempt = 0; attempt <= MAX_RETRY; attempt++) {
-      var res = await fetch("https://text.pollinations.ai/openai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "openai",
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user",   content: question }
-          ]
-        })
-      });
-
-      if (res.ok) {
-        var data = await res.json();
-        return data.choices[0].message.content.trim();
+async function addImages(keywords) {
+  for (const kw of keywords.split(',').slice(0, 2)) {
+    try {
+      const r = await fetch("https://commons.wikimedia.org/w/api.php?" +
+        new URLSearchParams({
+          action:"query", format:"json", origin:"*",
+          generator:"search", gsrsearch:"filetype:bitmap " + kw.trim(),
+          gsrnamespace:"6", gsrlimit:"1",
+          prop:"imageinfo", iiprop:"url", iiurlwidth:"70"
+        }));
+      const j = await r.json();
+      const page = j.query && j.query.pages && Object.values(j.query.pages)[0];
+      if (page && page.imageinfo) {
+        const img = document.createElement('img');
+        img.className = "img";
+        img.src = page.imageinfo[0].thumburl;
+        img.alt = kw;
+        chat.appendChild(img); chat.scrollTop = chat.scrollHeight;
       }
-
-      if (res.status === 402 || res.status === 429) {
-        var wait = parseInt(res.headers.get("Retry-After"), 10);
-        if (!isFinite(wait) || wait < 1) wait = 3 * (attempt + 1);
-        if (wait > 20) wait = 20;
-        var msg = add('a', "free slot busy, waiting " + wait + "s...");
-        await sleep(wait * 1000);
-        if (msg.parentNode) { chat.removeChild(msg); }
-        continue;
-      }
-
-      throw new Error("HTTP " + res.status);
-    }
-    throw new Error("still rate-limited, try again later");
+    } catch(e) {}
   }
+}
 
-  var busy = false;
+const sleep = s => new Promise(r => setTimeout(r, s * 1000));
 
-  function ask() {
-    if (busy) return;
-    var question = q.value.replace(/^\s+|\s+$/g, '');
-    if (!question) return;
+/* ---------- AI call ---------- */
+async function getAI(question, useWeb) {
+  const body = {
+    model: useWeb ? "gemini-search" : "openai", // gemini-search = live web results
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user",   content: question }
+    ]
+  };
 
-    busy = true;
-    btn.textContent = '...';
-    q.value = '';
-    add('q', '> ' + question);
-    var aEl = add('a', 'thinking...');
-
-    getAI(question).then(function (text) {
-      var keywords = '';
-      var m = text.match(/KEYWORDS:\s*(.+)/i);
-      if (m) {
-        keywords = m[1];
-        text = text.replace(m[0], '').replace(/\s+$/, '');
-      }
-      aEl.textContent = text;
-      end();
-      if (keywords) return addImages(keywords);
-    }).catch(function (e) {
-      aEl.textContent = 'AI error: ' + (e && e.message ? e.message : e);
-      end();
-    }).then(function () {
-      busy = false;
-      btn.textContent = 'GO';
+  for (let i = 0; i < 3; i++) {
+    const res = await fetch("https://gen.pollinations.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + API_KEY
+      },
+      body: JSON.stringify(body)
     });
+
+    if (res.ok) {
+      const data = await res.json();
+      return data.choices[0].message.content.trim();
+    }
+
+    if (res.status === 401) {
+      if (API_KEY === "PASTE_YOUR_sk_KEY_HERE")
+        throw new Error("no key: paste sk_ key into API_KEY in the code");
+      throw new Error("bad/expired key (401)");
+    }
+
+    if (res.status === 402) throw new Error("out of Pollen credit, top up or earn via Quests");
+
+    if (res.status === 429 || res.status === 503) {
+      const wait = Math.max(parseFloat(res.headers.get("Retry-After")) || [3, 8, 20][i], 3);
+      const msg = add('a', "busy, retrying in " + wait + "s... (" + (i + 1) + "/3)");
+      await sleep(wait);
+      msg.remove();
+      continue;
+    }
+
+    throw new Error("HTTP " + res.status);
+  }
+  throw new Error("rate-limited, try again in a minute");
+}
+
+/* ---------- ask ---------- */
+let busy = false;
+
+async function ask() {
+  if (busy) return;
+  let question = input.value.trim();
+  if (!question) return;
+
+  // web mode: "web <question>" prefix
+  let useWeb = false;
+  if (/^web\s+/i.test(question)) { useWeb = true; question = question.replace(/^web\s+/i, ""); }
+  if (!useWeb && /latest|today|now|current|news|price|weather|score/i.test(question)) useWeb = true;
+
+  busy = true; btn.textContent = "...";
+  input.value = "";
+  add('q', "> " + question + (useWeb ? " [web]" : ""));
+  const aEl = add('a', "thinking...");
+
+  try {
+    let text = await getAI(question, useWeb);
+
+    let keywords = "";
+    const m = text.match(/KEYWORDS:\s*(.+)/i);
+    if (m) { keywords = m[1]; text = text.replace(m[0], "").trim(); }
+    aEl.textContent = text;
+    chat.scrollTop = chat.scrollHeight;
+    if (keywords) await addImages(keywords);
+  } catch(e) {
+    aEl.textContent = "AI error: " + e.message;
+  }
+  busy = false; btn.textContent = "GO";
+}
+
+btn.addEventListener('click', ask);
+input.addEventListener('keydown', e => {
+  if (e.key === "Enter") ask();
+});
+
+/* ---------- D-pad navigation ----------
+   Up/Down    : scroll focused element, or move focus at edges
+   Left/Right : cycle focus (input -> GO -> chat -> input)
+   Enter      : activate (submit / press GO)
+   #          : toggle web (live info) mode                        */
+const focusables = [input, btn, chat];
+let fi = 0;
+function setFocus(i) {
+  focusables.forEach(el => el.classList.remove('focused'));
+  fi = (i + focusables.length) % focusables.length;
+  const el = focusables[fi];
+  el.classList.add('focused');
+  el.focus({ preventScroll: true });
+}
+setFocus(0);
+
+document.addEventListener('keydown', e => {
+  if (e.key === "#") { // toggle live-web mode
+    if (!/^web\s/i.test(input.value)) input.value = "web " + input.value;
+    else input.value = input.value.replace(/^web\s+/i, "");
+    e.preventDefault();
+    return;
   }
 
-  btn.addEventListener('click', ask, false);
-  q.addEventListener('keydown', function (e) {
-    if ((e.key === 'Enter' || e.keyCode === 13) && !e.shiftKey) {
-      e.preventDefault();
-      ask();
-    }
-  }, false);
+  const el = focusables[fi];
+  const step = 20;
 
-  updateHint();
-})();
+  if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    e.preventDefault();
+    const dir = e.key === "ArrowDown" ? 1 : -1;
+    if (el === chat) {
+      const before = chat.scrollTop;
+      chat.scrollTop += dir * step;
+      if (chat.scrollTop === before && dir === -1) setFocus(fi - 1);
+      else if (chat.scrollTop + chat.clientHeight >= chat.scrollHeight && dir === 1) setFocus(fi + 1);
+    } else if (el === input && input.value === "" && dir === -1) {
+      setFocus(fi - 1);
+    } else {
+      setFocus(fi + dir);
+    }
+  }
+
+  if (e.key === "ArrowRight") { e.preventDefault(); setFocus(fi + 1); }
+  if (e.key === "ArrowLeft")  { e.preventDefault(); setFocus(fi - 1); }
+
+  if (e.key === "Enter" && document.activeElement === btn) { e.preventDefault(); ask(); }
+});
 </script>
 </body>
 </html>
